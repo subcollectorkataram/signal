@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
+import time
 
 # === Helper: RSI ===
 def compute_rsi(series, period=14):
@@ -17,7 +18,7 @@ def compute_rsi(series, period=14):
 def generate_signal(ticker, bench, cfg):
     end = datetime.today().strftime("%Y-%m-%d")
     start = "2023-01-01"
-
+    time.sleep(2)
     prices = yf.download([ticker, bench], start=start, end=end,
                          progress=False, auto_adjust=True)["Close"].dropna(how="all")
     if ticker not in prices.columns or bench not in prices.columns:
@@ -119,6 +120,7 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
+
 
 
 
