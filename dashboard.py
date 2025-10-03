@@ -51,7 +51,7 @@ def generate_signal(ticker, bench, cfg):
     else:
         p = latest["Price"]
         
-    rsi, sma, boom = latest["Price"], latest["RSI"], latest["SMA200"], latest["IsBoom"]
+    rsi, sma, boom = latest["RSI"], latest["SMA200"], latest["IsBoom"]
 
     signal = "HOLD"
     reason = ""
@@ -119,5 +119,6 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
+
 
 
