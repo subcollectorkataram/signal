@@ -28,54 +28,68 @@ def generate_signal(ticker, bench, cfg):
     price = prices[ticker].to_frame(name="Price")
     bench_series = prices[bench]
 
-    price["SMA200"] = price["Price"].rolling(cfg["sma_window"]).mean()
-    price["RSI"] = compute_rsi(price["Price"], period=cfg["rsi_period"])
+    # === Config variables from sidebar ===
+    sma_window = cfg["sma_window"]
+    rsi_period = cfg["rsi_period"]
+    rsi_overbought = cfg["rsi_overbought"]
+    rsi_oversold = cfg["rsi_oversold"]
+    use_atr_stop = cfg["use_atr_stop"]
+    atr_period = cfg["atr_period"]
+    atr_mult = cfg["atr_mult"]
+    boom_threshold = cfg["boom_threshold"]
 
-    if cfg["use_atr_stop"]:
+    # For demo, assume in_position and strongtrend_sma_gap
+    in_position = True
+    strongtrend_sma_gap = 0.05
+    rsi_overbought_strongtrend = 80
+    trailing_stop = None
+
+    # Calculate indicators
+    price["SMA200"] = price["Price"].rolling(sma_window).mean()
+    price["RSI"] = compute_rsi(price["Price"], period=rsi_period)
+
+    if use_atr_stop:
         ohlc = yf.download(ticker, start=start, end=end,
                            progress=False, auto_adjust=True)[["High","Low","Close"]]
         hl = ohlc["High"] - ohlc["Low"]
         hp = (ohlc["High"] - ohlc["Close"].shift()).abs()
         lp = (ohlc["Low"] - ohlc["Close"].shift()).abs()
         tr = pd.concat([hl, hp, lp], axis=1).max(axis=1)
-        price["ATR"] = tr.rolling(cfg["atr_period"]).mean()
+        price["ATR"] = tr.rolling(atr_period).mean()
 
+    # Boom quarter
     bench_quarterly = bench_series.resample("QE").last()
     quarterly_returns = bench_quarterly.pct_change(fill_method=None)
-    boom_quarters_idx = quarterly_returns[quarterly_returns > cfg["boom_threshold"]].index
+    boom_quarters_idx = quarterly_returns[quarterly_returns > boom_threshold].index
     boom_quarters_set = set((q.year, q.quarter) for q in boom_quarters_idx)
     price["IsBoom"] = [(d.year, d.quarter) in boom_quarters_set for d in price.index]
 
     latest = price.iloc[-1]
     live_price = yf.Ticker(ticker).info.get("currentPrice")
-    if live_price:
-        p = live_price
-    else:
-        p = latest["Price"]
+    p = live_price if live_price else latest["Price"]
     rsi, sma, boom = latest["RSI"], latest["SMA200"], latest["IsBoom"]
 
     signal = "HOLD"
     reason = ""
 
-
+    # Signal logic
     if boom:
         signal = "BUY"
         reason = "Boom quarter"
     
     elif pd.notna(rsi) and pd.notna(sma):
-        # Entry logic
+        # Entry
         if (rsi < rsi_oversold) and (p > sma):
             signal = "BUY"
             reason = f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"
-    
-        # Exit logic
+        
+        # Exit
         elif in_position:
-            # Trend-aware RSI threshold
             if p > sma * (1 + strongtrend_sma_gap):
                 overbought_level = rsi_overbought_strongtrend
             else:
                 overbought_level = rsi_overbought
-    
+
             if (rsi > overbought_level) or (p < sma):
                 signal = "SELL"
                 if rsi > overbought_level and p < sma:
@@ -84,13 +98,13 @@ def generate_signal(ticker, bench, cfg):
                     reason = f"RSI {rsi:.1f} > {overbought_level}"
                 elif p < sma:
                     reason = f"Price < SMA200 ({p:.2f} < {sma:.2f})"
-    
+
             # ATR trailing stop
-            if use_atr_stop and not pd.isna(row.get("ATR")):
+            if use_atr_stop and "ATR" in latest and not pd.isna(latest["ATR"]):
                 if trailing_stop is None:
-                    trailing_stop = p - atr_mult * row["ATR"]
+                    trailing_stop = p - atr_mult * latest["ATR"]
                 else:
-                    trailing_stop = max(trailing_stop, p - atr_mult * row["ATR"])
+                    trailing_stop = max(trailing_stop, p - atr_mult * latest["ATR"])
                 if p < trailing_stop:
                     signal = "SELL"
                     reason = f"Price hit ATR trailing stop ({p:.2f} < {trailing_stop:.2f})"
@@ -101,7 +115,7 @@ def generate_signal(ticker, bench, cfg):
         "Price": round(p,2),
         "RSI": round(rsi,2) if pd.notna(rsi) else None,
         "SMA200": round(sma,2) if pd.notna(sma) else None,
-        "ATR": round(latest.get("ATR", float("nan")),2) if cfg["use_atr_stop"] else None,
+        "ATR": round(latest.get("ATR", float("nan")),2) if use_atr_stop else None,
         "IsBoom": bool(boom),
         "Signal": signal,
         "Reason": reason
@@ -111,7 +125,7 @@ def generate_signal(ticker, bench, cfg):
 st.set_page_config(page_title="Signal Dashboard", layout="wide")
 st.title("📈 Signal Dashboard")
 
-# Default config
+# Default config from sidebar
 default_cfg = {
     "sma_window": st.sidebar.number_input("SMA Window", value=200),
     "rsi_period": st.sidebar.number_input("RSI Period", value=14),
@@ -142,5 +156,3 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
-
-
