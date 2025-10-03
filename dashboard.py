@@ -45,7 +45,13 @@ def generate_signal(ticker, bench, cfg):
     price["IsBoom"] = [(d.year, d.quarter) in boom_quarters_set for d in price.index]
 
     latest = price.iloc[-1]
-    p, rsi, sma, boom = latest["Price"], latest["RSI"], latest["SMA200"], latest["IsBoom"]
+    live_price = yf.Ticker(ticker).info.get("currentPrice")
+    if live_price:
+        p = live_price
+    else:
+        p = latest["Price"]
+        
+    rsi, sma, boom = latest["Price"], latest["RSI"], latest["SMA200"], latest["IsBoom"]
 
     signal = "HOLD"
     reason = ""
@@ -113,4 +119,5 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
+
 
