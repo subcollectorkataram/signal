@@ -52,21 +52,43 @@ def generate_signal(ticker, bench, cfg):
     signal = "HOLD"
     reason = ""
 
+
     if boom:
         signal = "BUY"
         reason = "Boom quarter"
+    
     elif pd.notna(rsi) and pd.notna(sma):
-        if (rsi < cfg["rsi_oversold"]) and (p > sma):
+        # Entry logic
+        if (rsi < rsi_oversold) and (p > sma):
             signal = "BUY"
-            reason = f"RSI {rsi:.1f} < {cfg['rsi_oversold']} and Price > SMA200 ({p:.2f} > {sma:.2f})"
-        elif (rsi > cfg["rsi_overbought"]) or (p < sma):
-            signal = "SELL"
-            if rsi > cfg["rsi_overbought"] and p < sma:
-                reason = f"RSI {rsi:.1f} > {cfg['rsi_overbought']} and Price < SMA200 ({p:.2f} < {sma:.2f})"
-            elif rsi > cfg["rsi_overbought"]:
-                reason = f"RSI {rsi:.1f} > {cfg['rsi_overbought']}"
-            elif p < sma:
-                reason = f"Price < SMA200 ({p:.2f} < {sma:.2f})"
+            reason = f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"
+    
+        # Exit logic
+        elif in_position:
+            # Trend-aware RSI threshold
+            if p > sma * (1 + strongtrend_sma_gap):
+                overbought_level = rsi_overbought_strongtrend
+            else:
+                overbought_level = rsi_overbought
+    
+            if (rsi > overbought_level) or (p < sma):
+                signal = "SELL"
+                if rsi > overbought_level and p < sma:
+                    reason = f"RSI {rsi:.1f} > {overbought_level} and Price < SMA200 ({p:.2f} < {sma:.2f})"
+                elif rsi > overbought_level:
+                    reason = f"RSI {rsi:.1f} > {overbought_level}"
+                elif p < sma:
+                    reason = f"Price < SMA200 ({p:.2f} < {sma:.2f})"
+    
+            # ATR trailing stop
+            if use_atr_stop and not pd.isna(row.get("ATR")):
+                if trailing_stop is None:
+                    trailing_stop = p - atr_mult * row["ATR"]
+                else:
+                    trailing_stop = max(trailing_stop, p - atr_mult * row["ATR"])
+                if p < trailing_stop:
+                    signal = "SELL"
+                    reason = f"Price hit ATR trailing stop ({p:.2f} < {trailing_stop:.2f})"
 
     return {
         "Symbol": ticker,
@@ -115,3 +137,4 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
+
