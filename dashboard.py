@@ -75,21 +75,18 @@ def generate_signal(ticker, bench, cfg):
     # Signal logic
     if boom:
         signal = "BUY"
-        reason = "Boom quarter"
-    
+        reason = "Boom quarter"    
     elif pd.notna(rsi) and pd.notna(sma):
         # Entry
         if (rsi < rsi_oversold) and (p > sma):
             signal = "BUY"
-            reason = f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"
-        
+            reason = f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"        
         # Exit
         elif in_position:
             if p > sma * (1 + strongtrend_sma_gap):
                 overbought_level = rsi_overbought_strongtrend
             else:
                 overbought_level = rsi_overbought
-
             if (rsi > overbought_level) or (p < sma):
                 signal = "SELL"
                 if rsi > overbought_level and p < sma:
@@ -98,7 +95,6 @@ def generate_signal(ticker, bench, cfg):
                     reason = f"RSI {rsi:.1f} > {overbought_level}"
                 elif p < sma:
                     reason = f"Price < SMA200 ({p:.2f} < {sma:.2f})"
-
             # ATR trailing stop
             if use_atr_stop and "ATR" in latest and not pd.isna(latest["ATR"]):
                 if trailing_stop is None:
@@ -156,3 +152,4 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
+
