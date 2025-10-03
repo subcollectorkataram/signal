@@ -95,7 +95,7 @@ default_cfg = {
 }
 
 benchmark = st.sidebar.text_input("Benchmark Symbol", value="NIFTYBEES.NS")
-symbols_input = st.text_area("Enter stock symbols (comma-separated)", value="HDFCBANK.NS,HERITGFOOD.NS,ADANIGREEN.NS,NIFTYBEES.NS,HDFCSML250.NS")
+symbols_input = st.text_area("Enter stock symbols (comma-separated)", value="NIFTYBEES.NS,HDFCBANK.NS,SIGACHI.NS")
 symbols = [s.strip() for s in symbols_input.split(",") if s.strip()]
 
 if st.button("Generate Signals"):
@@ -113,3 +113,4 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
+
