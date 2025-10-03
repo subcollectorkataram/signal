@@ -74,8 +74,12 @@ def generate_signal(ticker, bench, cfg):
 
     # Signal logic
     if boom:
-        signal = "BUY"
-        reason = "Boom quarter"    
+        if rse > 90:
+            signal = "SELL
+        else:
+            signal = "BUY"
+        reason = "Boom quarter"
+        
     elif pd.notna(rsi) and pd.notna(sma):
         # Entry
         if (rsi < rsi_oversold) and (p > sma):
@@ -152,4 +156,5 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
+
 
