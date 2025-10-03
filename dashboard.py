@@ -75,7 +75,7 @@ def generate_signal(ticker, bench, cfg):
     # Signal logic
     if boom:
         if rse > 90:
-            signal = "SELL
+            signal = "SELL"
         else:
             signal = "BUY"
         reason = "Boom quarter"
@@ -156,5 +156,6 @@ if st.button("Generate Signals"):
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.warning("No data returned. Check symbols or benchmark.")
+
 
 
