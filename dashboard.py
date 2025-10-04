@@ -141,7 +141,7 @@ default_cfg = {
 }
 
 symbols_input = st.text_area("Enter stock symbols (comma-separated)", 
-                             value="HDFCBANK.NS,HERITGFOOD.NS,ADANIGREEN.NS,NIFTYBEES.NS,HDFCSML250.NS")
+                             value="NIFTYBEES.NS")
 symbols = [s.strip() for s in symbols_input.split(",") if s.strip()]
 
 if st.button("Generate Signals"):
@@ -164,3 +164,4 @@ if st.button("Generate Signals"):
     if not df_tax.empty:
         st.subheader("Signals with 15% Tax Implications")
         st.dataframe(df_tax.style.apply(highlight, axis=1), use_container_width=True)
+
