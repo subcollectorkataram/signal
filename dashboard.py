@@ -15,7 +15,7 @@ def compute_rsi(series, period=14):
     return 100 - (100 / (1 + rs))
 
 # === Signal Generator ===
-def generate_signal(ticker, bench, cfg, simulate_tax=False):
+def generate_signal(ticker, cfg, simulate_tax=False):
     time.sleep(1)
     end = datetime.today().strftime("%Y-%m-%d")
     start = "2023-01-01"
@@ -56,7 +56,7 @@ def generate_signal(ticker, bench, cfg, simulate_tax=False):
         tr = pd.concat([hl, hp, lp], axis=1).max(axis=1)
         price["ATR"] = tr.rolling(atr_period).mean()
 
-    # Boom quarter (per stock, not benchmark)
+    # Boom quarter (per stock)
     stock_quarterly = price["Price"].resample("QE").last()
     quarterly_returns = stock_quarterly.pct_change(fill_method=None)
     boom_quarters_idx = quarterly_returns[quarterly_returns > boom_threshold].index
@@ -73,11 +73,10 @@ def generate_signal(ticker, bench, cfg, simulate_tax=False):
 
     # Adjust thresholds if tax simulation is on
     if simulate_tax:
-        # Make SELL harder to trigger (proxy for 15% tax)
         rsi_overbought += 5
         rsi_overbought_strongtrend += 5
-        sma = sma * 0.85 if pd.notna(sma) else sma  # require deeper drop
-        reason += "[Tax Simulation Active] "
+        sma = sma * 0.85 if pd.notna(sma) else sma
+        reason += "[Tax Sim] "
 
     # Signal logic
     if boom:
@@ -88,11 +87,9 @@ def generate_signal(ticker, bench, cfg, simulate_tax=False):
         reason += "Boom quarter"
         
     elif pd.notna(rsi) and pd.notna(sma):
-        # Entry
         if (rsi < rsi_oversold) and (p > sma):
             signal = "BUY"
             reason += f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"        
-        # Exit
         elif in_position:
             if p > sma * (1 + strongtrend_sma_gap):
                 overbought_level = rsi_overbought_strongtrend
@@ -106,7 +103,6 @@ def generate_signal(ticker, bench, cfg, simulate_tax=False):
                     reason += f"RSI {rsi:.1f} > {overbought_level}"
                 elif p < sma:
                     reason += f"Price < SMA200 ({p:.2f} < {sma:.2f})"
-            # ATR trailing stop
             if use_atr_stop and "ATR" in latest and not pd.isna(latest["ATR"]):
                 if trailing_stop is None:
                     trailing_stop = p - atr_mult * latest["ATR"]
@@ -144,25 +140,27 @@ default_cfg = {
     "atr_mult": st.sidebar.number_input("ATR Multiplier", value=2.0)
 }
 
-benchmark = st.sidebar.text_input("Benchmark Symbol", value="NIFTYBEES.NS")
-simulate_tax = st.sidebar.button("Simulate 15% Tax")
-
 symbols_input = st.text_area("Enter stock symbols (comma-separated)", 
                              value="HDFCBANK.NS,HERITGFOOD.NS,ADANIGREEN.NS,NIFTYBEES.NS,HDFCSML250.NS")
 symbols = [s.strip() for s in symbols_input.split(",") if s.strip()]
 
 if st.button("Generate Signals"):
-    results = []
+    normal_results, tax_results = [], []
     for sym in symbols:
-        res = generate_signal(sym, benchmark, default_cfg, simulate_tax=simulate_tax)
-        results.append(res)
+        normal_results.append(generate_signal(sym, default_cfg, simulate_tax=False))
+        tax_results.append(generate_signal(sym, default_cfg, simulate_tax=True))
 
-    df = pd.DataFrame(results)
-    if not df.empty:
-        def highlight(row):
-            color = {"BUY": "#d4f4dd", "SELL": "#f4d4d4", "HOLD": "#f4f4d4"}
-            return [f"background-color: {color.get(row['Signal'], '')}" for _ in row]
+    df_normal = pd.DataFrame(normal_results)
+    df_tax = pd.DataFrame(tax_results)
 
-        st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
-    else:
-        st.warning("No data returned. Check symbols or benchmark.")
+    def highlight(row):
+        color = {"BUY": "#d4f4dd", "SELL": "#f4d4d4", "HOLD": "#f4f4d4"}
+        return [f"background-color: {color.get(row['Signal'], '')}" for _ in row]
+
+    if not df_normal.empty:
+        st.subheader("Normal Signals")
+        st.dataframe(df_normal.style.apply(highlight, axis=1), use_container_width=True)
+
+    if not df_tax.empty:
+        st.subheader("Signals with 15% Tax Implications")
+        st.dataframe(df_tax.style.apply(highlight, axis=1), use_container_width=True)
