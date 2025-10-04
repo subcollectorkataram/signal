@@ -185,7 +185,7 @@ def compute_rsi(series, period=14):
     return 100 - (100 / (1 + rs))
 
 # === Signal Generator ===
-def generate_signal(ticker, cfg, sim_mode="ATR Scaling"):
+def generate_signal(ticker, cfg, sim_mode="Normal"):
     time.sleep(1)
     end = datetime.today().strftime("%Y-%m-%d")
     start = "2023-01-01"
@@ -207,7 +207,7 @@ def generate_signal(ticker, cfg, sim_mode="ATR Scaling"):
     atr_mult = cfg["atr_mult"]
     boom_threshold = cfg["boom_threshold"]
 
-    # For demo, assume in_position and strongtrend_sma_gap
+    # Demo placeholders
     in_position = True
     strongtrend_sma_gap = 0.05
     rsi_overbought_strongtrend = 80
@@ -226,7 +226,7 @@ def generate_signal(ticker, cfg, sim_mode="ATR Scaling"):
         tr = pd.concat([hl, hp, lp], axis=1).max(axis=1)
         price["ATR"] = tr.rolling(atr_period).mean()
 
-    # Boom quarter (per stock)
+    # Boom quarter detection
     stock_quarterly = price["Price"].resample("QE").last()
     quarterly_returns = stock_quarterly.pct_change(fill_method=None)
     boom_quarters_idx = quarterly_returns[quarterly_returns > boom_threshold].index
@@ -314,7 +314,7 @@ def generate_signal(ticker, cfg, sim_mode="ATR Scaling"):
 st.set_page_config(page_title="Signal Dashboard", layout="wide")
 st.title("📈 Signal Dashboard")
 
-# Default config from sidebar
+# Sidebar inputs
 default_cfg = {
     "sma_window": st.sidebar.number_input("SMA Window", value=200),
     "rsi_period": st.sidebar.number_input("RSI Period", value=14),
@@ -350,11 +350,11 @@ if st.button("Generate Signals"):
         color = {"BUY": "#d4f4dd", "SELL": "#f4d4d4", "HOLD": "#f4f4d4"}
         return [f"background-color: {color.get(row['Signal'], '')}" for _ in row]
 
-    if not df_normal.empty and not df_sim.empty:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Normal Signals")
-            st.dataframe(df_normal.style.apply(highlight, axis=1), use_container_width=True)
-        with col2:
-            st.subheader(f"Signals — {sim_mode}")
-            st.dataframe(df_sim.style.apply(highlight, axis=1), use_container_width=True)
+    # === Display results ===
+    if not df_normal.empty:
+        st.subheader("Normal Signals")
+        st.dataframe(df_normal.style.apply(highlight, axis=1), use_container_width=True)
+
+    if not df_sim.empty:
+        st.subheader(f"Signals — {sim_mode}")
+        st.dataframe(df_sim.style.apply(highlight, axis=1), use_container_width=True)
