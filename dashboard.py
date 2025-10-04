@@ -1,168 +1,3 @@
-# import streamlit as st
-# import yfinance as yf
-# import pandas as pd
-# from datetime import datetime
-# import time
-
-# # === Helper: RSI ===
-# def compute_rsi(series, period=14):
-#     delta = series.diff()
-#     gain = delta.where(delta > 0, 0.0)
-#     loss = -delta.where(delta < 0, 0.0)
-#     avg_gain = gain.rolling(period).mean()
-#     avg_loss = loss.rolling(period).mean()
-#     rs = avg_gain / avg_loss
-#     return 100 - (100 / (1 + rs))
-
-# # === Signal Generator ===
-# def generate_signal(ticker, bench, cfg):
-#     time.sleep(1)
-#     end = datetime.today().strftime("%Y-%m-%d")
-#     start = "2023-01-01"
-
-#     prices = yf.download([ticker, bench], start=start, end=end,
-#                          progress=False, auto_adjust=True)["Close"].dropna(how="all")
-#     if ticker not in prices.columns or bench not in prices.columns:
-#         return {"Symbol": ticker, "Error": "Data not available"}
-
-#     price = prices[ticker].to_frame(name="Price")
-#     bench_series = prices[bench]
-
-#     # === Config variables from sidebar ===
-#     sma_window = cfg["sma_window"]
-#     rsi_period = cfg["rsi_period"]
-#     rsi_overbought = cfg["rsi_overbought"]
-#     rsi_oversold = cfg["rsi_oversold"]
-#     use_atr_stop = cfg["use_atr_stop"]
-#     atr_period = cfg["atr_period"]
-#     atr_mult = cfg["atr_mult"]
-#     boom_threshold = cfg["boom_threshold"]
-
-#     # For demo, assume in_position and strongtrend_sma_gap
-#     in_position = True
-#     strongtrend_sma_gap = 0.05
-#     rsi_overbought_strongtrend = 80
-#     trailing_stop = None
-
-#     # Calculate indicators
-#     price["SMA200"] = price["Price"].rolling(sma_window).mean()
-#     price["RSI"] = compute_rsi(price["Price"], period=rsi_period)
-
-#     if use_atr_stop:
-#         ohlc = yf.download(ticker, start=start, end=end,
-#                            progress=False, auto_adjust=True)[["High","Low","Close"]]
-#         hl = ohlc["High"] - ohlc["Low"]
-#         hp = (ohlc["High"] - ohlc["Close"].shift()).abs()
-#         lp = (ohlc["Low"] - ohlc["Close"].shift()).abs()
-#         tr = pd.concat([hl, hp, lp], axis=1).max(axis=1)
-#         price["ATR"] = tr.rolling(atr_period).mean()
-
-#     # Boom quarter
-#     bench_quarterly = bench_series.resample("QE").last()
-#     quarterly_returns = bench_quarterly.pct_change(fill_method=None)
-#     boom_quarters_idx = quarterly_returns[quarterly_returns > boom_threshold].index
-#     boom_quarters_set = set((q.year, q.quarter) for q in boom_quarters_idx)
-#     price["IsBoom"] = [(d.year, d.quarter) in boom_quarters_set for d in price.index]
-
-#     latest = price.iloc[-1]
-#     live_price = yf.Ticker(ticker).info.get("currentPrice")
-#     p = live_price if live_price else latest["Price"]
-#     rsi, sma, boom = latest["RSI"], latest["SMA200"], latest["IsBoom"]
-
-#     signal = "HOLD"
-#     reason = ""
-
-#     # Signal logic
-#     if boom:
-#         if rse > 90:
-#             signal = "SELL"
-#         else:
-#             signal = "BUY"
-#         reason = "Boom quarter"
-        
-#     elif pd.notna(rsi) and pd.notna(sma):
-#         # Entry
-#         if (rsi < rsi_oversold) and (p > sma):
-#             signal = "BUY"
-#             reason = f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"        
-#         # Exit
-#         elif in_position:
-#             if p > sma * (1 + strongtrend_sma_gap):
-#                 overbought_level = rsi_overbought_strongtrend
-#             else:
-#                 overbought_level = rsi_overbought
-#             if (rsi > overbought_level) or (p < sma):
-#                 signal = "SELL"
-#                 if rsi > overbought_level and p < sma:
-#                     reason = f"RSI {rsi:.1f} > {overbought_level} and Price < SMA200 ({p:.2f} < {sma:.2f})"
-#                 elif rsi > overbought_level:
-#                     reason = f"RSI {rsi:.1f} > {overbought_level}"
-#                 elif p < sma:
-#                     reason = f"Price < SMA200 ({p:.2f} < {sma:.2f})"
-#             # ATR trailing stop
-#             if use_atr_stop and "ATR" in latest and not pd.isna(latest["ATR"]):
-#                 if trailing_stop is None:
-#                     trailing_stop = p - atr_mult * latest["ATR"]
-#                 else:
-#                     trailing_stop = max(trailing_stop, p - atr_mult * latest["ATR"])
-#                 if p < trailing_stop:
-#                     signal = "SELL"
-#                     reason = f"Price hit ATR trailing stop ({p:.2f} < {trailing_stop:.2f})"
-
-#     return {
-#         "Symbol": ticker,
-#         "Date": latest.name.strftime("%Y-%m-%d"),
-#         "Price": round(p,2),
-#         "RSI": round(rsi,2) if pd.notna(rsi) else None,
-#         "SMA200": round(sma,2) if pd.notna(sma) else None,
-#         "ATR": round(latest.get("ATR", float("nan")),2) if use_atr_stop else None,
-#         "IsBoom": bool(boom),
-#         "Signal": signal,
-#         "Reason": reason
-#     }
-
-# # === Streamlit UI ===
-# st.set_page_config(page_title="Signal Dashboard", layout="wide")
-# st.title("📈 Signal Dashboard")
-
-# # Default config from sidebar
-# default_cfg = {
-#     "sma_window": st.sidebar.number_input("SMA Window", value=200),
-#     "rsi_period": st.sidebar.number_input("RSI Period", value=14),
-#     "boom_threshold": st.sidebar.number_input("Boom Threshold", value=0.05),
-#     "rsi_overbought": st.sidebar.number_input("RSI Overbought", value=70),
-#     "rsi_oversold": st.sidebar.number_input("RSI Oversold", value=30),
-#     "use_atr_stop": st.sidebar.checkbox("Use ATR Stop", value=True),
-#     "atr_period": st.sidebar.number_input("ATR Period", value=14),
-#     "atr_mult": st.sidebar.number_input("ATR Multiplier", value=2.0)
-# }
-
-# benchmark = st.sidebar.text_input("Benchmark Symbol", value="NIFTYBEES.NS")
-# symbols_input = st.text_area("Enter stock symbols (comma-separated)", value="HDFCBANK.NS,HERITGFOOD.NS,ADANIGREEN.NS,NIFTYBEES.NS,HDFCSML250.NS")
-# symbols = [s.strip() for s in symbols_input.split(",") if s.strip()]
-
-# if st.button("Generate Signals"):
-#     results = []
-#     for sym in symbols:
-#         res = generate_signal(sym, benchmark, default_cfg)
-#         results.append(res)
-
-#     df = pd.DataFrame(results)
-#     if not df.empty:
-#         def highlight(row):
-#             color = {"BUY": "#d4f4dd", "SELL": "#f4d4d4", "HOLD": "#f4f4d4"}
-#             return [f"background-color: {color.get(row['Signal'], '')}" for _ in row]
-
-#         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
-#     else:
-#         st.warning("No data returned. Check symbols or benchmark.")
-
-
-
-
-#################UPDATED TO INCLUDE STOCK BASED MOMENTUM, and TAXATION
-
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -179,14 +14,14 @@ def compute_rsi(series, period=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-# === Signal Generator with stock-based boom & taxation ===
-def generate_signal(ticker, bench, cfg):
+# === Signal Generator ===
+def generate_signal(ticker, bench, cfg, simulate_tax=False):
     time.sleep(1)
     end = datetime.today().strftime("%Y-%m-%d")
     start = "2023-01-01"
 
-    prices = yf.download([ticker, bench], start=start, end=end,
-                         progress=False, auto_adjust=True)["Close"].dropna(how="all")
+    prices = yf.download([ticker], start=start, end=end,
+                         progress=False, auto_adjust=True)["Close"].dropna()
     if ticker not in prices.columns:
         return {"Symbol": ticker, "Error": "Data not available"}
 
@@ -202,7 +37,13 @@ def generate_signal(ticker, bench, cfg):
     atr_mult = cfg["atr_mult"]
     boom_threshold = cfg["boom_threshold"]
 
-    # Indicators
+    # For demo, assume in_position and strongtrend_sma_gap
+    in_position = True
+    strongtrend_sma_gap = 0.05
+    rsi_overbought_strongtrend = 80
+    trailing_stop = None
+
+    # Calculate indicators
     price["SMA200"] = price["Price"].rolling(sma_window).mean()
     price["RSI"] = compute_rsi(price["Price"], period=rsi_period)
 
@@ -215,44 +56,42 @@ def generate_signal(ticker, bench, cfg):
         tr = pd.concat([hl, hp, lp], axis=1).max(axis=1)
         price["ATR"] = tr.rolling(atr_period).mean()
 
-    # === Stock-based boom quarters ===
+    # Boom quarter (per stock, not benchmark)
     stock_quarterly = price["Price"].resample("QE").last()
-    quarterly_returns = stock_quarterly.pct_change()
+    quarterly_returns = stock_quarterly.pct_change(fill_method=None)
     boom_quarters_idx = quarterly_returns[quarterly_returns > boom_threshold].index
     boom_quarters_set = set((q.year, q.quarter) for q in boom_quarters_idx)
     price["IsBoom"] = [(d.year, d.quarter) in boom_quarters_set for d in price.index]
 
-    # Latest price and indicators
     latest = price.iloc[-1]
     live_price = yf.Ticker(ticker).info.get("currentPrice")
     p = live_price if live_price else latest["Price"]
     rsi, sma, boom = latest["RSI"], latest["SMA200"], latest["IsBoom"]
 
-    # === Trading variables ===
     signal = "HOLD"
     reason = ""
-    in_position = True
-    entry_price = latest["Price"]  # assume bought at last close
-    trailing_stop = None
-    strongtrend_sma_gap = 0.05
-    rsi_overbought_strongtrend = 80
-    tax_rate = 0.15
 
-    # === Signal Logic ===
+    # Adjust thresholds if tax simulation is on
+    if simulate_tax:
+        # Make SELL harder to trigger (proxy for 15% tax)
+        rsi_overbought += 5
+        rsi_overbought_strongtrend += 5
+        sma = sma * 0.85 if pd.notna(sma) else sma  # require deeper drop
+        reason += "[Tax Simulation Active] "
+
+    # Signal logic
     if boom:
-        # Always buy in stock boom unless RSI extremely high
-        if rsi > 100:
+        if rsi > 90:
             signal = "SELL"
-            reason = "RSI extremely high during stock boom"
         else:
             signal = "BUY"
-            reason = "Stock boom detected"
-
+        reason += "Boom quarter"
+        
     elif pd.notna(rsi) and pd.notna(sma):
         # Entry
         if (rsi < rsi_oversold) and (p > sma):
             signal = "BUY"
-            reason = f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"
+            reason += f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"        
         # Exit
         elif in_position:
             if p > sma * (1 + strongtrend_sma_gap):
@@ -260,27 +99,22 @@ def generate_signal(ticker, bench, cfg):
             else:
                 overbought_level = rsi_overbought
             if (rsi > overbought_level) or (p < sma):
-                # Apply taxation: only sell if gain after tax is positive
-                gain_after_tax = (p - entry_price) * (1 - tax_rate)
-                if gain_after_tax > 0:
-                    signal = "SELL"
-                    if rsi > overbought_level and p < sma:
-                        reason = f"RSI {rsi:.1f} > {overbought_level} and Price < SMA200 ({p:.2f} < {sma:.2f})"
-                    elif rsi > overbought_level:
-                        reason = f"RSI {rsi:.1f} > {overbought_level}"
-                    elif p < sma:
-                        reason = f"Price < SMA200 ({p:.2f} < {sma:.2f})"
-
+                signal = "SELL"
+                if rsi > overbought_level and p < sma:
+                    reason += f"RSI {rsi:.1f} > {overbought_level} and Price < SMA200 ({p:.2f} < {sma:.2f})"
+                elif rsi > overbought_level:
+                    reason += f"RSI {rsi:.1f} > {overbought_level}"
+                elif p < sma:
+                    reason += f"Price < SMA200 ({p:.2f} < {sma:.2f})"
             # ATR trailing stop
             if use_atr_stop and "ATR" in latest and not pd.isna(latest["ATR"]):
                 if trailing_stop is None:
                     trailing_stop = p - atr_mult * latest["ATR"]
                 else:
                     trailing_stop = max(trailing_stop, p - atr_mult * latest["ATR"])
-                gain_after_tax = (p - entry_price) * (1 - tax_rate)
-                if p < trailing_stop and gain_after_tax > 0:
+                if p < trailing_stop:
                     signal = "SELL"
-                    reason = f"Price hit ATR trailing stop ({p:.2f} < {trailing_stop:.2f})"
+                    reason += f" Price hit ATR trailing stop ({p:.2f} < {trailing_stop:.2f})"
 
     return {
         "Symbol": ticker,
@@ -302,7 +136,7 @@ st.title("📈 Signal Dashboard")
 default_cfg = {
     "sma_window": st.sidebar.number_input("SMA Window", value=200),
     "rsi_period": st.sidebar.number_input("RSI Period", value=14),
-    "boom_threshold": st.sidebar.number_input("Stock Boom Threshold", value=0.05),
+    "boom_threshold": st.sidebar.number_input("Boom Threshold", value=0.05),
     "rsi_overbought": st.sidebar.number_input("RSI Overbought", value=70),
     "rsi_oversold": st.sidebar.number_input("RSI Oversold", value=30),
     "use_atr_stop": st.sidebar.checkbox("Use ATR Stop", value=True),
@@ -310,14 +144,17 @@ default_cfg = {
     "atr_mult": st.sidebar.number_input("ATR Multiplier", value=2.0)
 }
 
-benchmark = st.sidebar.text_input("Benchmark Symbol (not used for boom)", value="NIFTYBEES.NS")
-symbols_input = st.text_area("Enter stock symbols (comma-separated)", value="HDFCBANK.NS,HERITGFOOD.NS,ADANIGREEN.NS,NIFTYBEES.NS,HDFCSML250.NS")
+benchmark = st.sidebar.text_input("Benchmark Symbol", value="NIFTYBEES.NS")
+simulate_tax = st.sidebar.button("Simulate 15% Tax")
+
+symbols_input = st.text_area("Enter stock symbols (comma-separated)", 
+                             value="HDFCBANK.NS,HERITGFOOD.NS,ADANIGREEN.NS,NIFTYBEES.NS,HDFCSML250.NS")
 symbols = [s.strip() for s in symbols_input.split(",") if s.strip()]
 
 if st.button("Generate Signals"):
     results = []
     for sym in symbols:
-        res = generate_signal(sym, benchmark, default_cfg)
+        res = generate_signal(sym, benchmark, default_cfg, simulate_tax=simulate_tax)
         results.append(res)
 
     df = pd.DataFrame(results)
@@ -328,9 +165,4 @@ if st.button("Generate Signals"):
 
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
     else:
-        st.warning("No data returned. Check symbols.")
-
-
-
-
-
+        st.warning("No data returned. Check symbols or benchmark.")
