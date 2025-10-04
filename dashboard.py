@@ -187,16 +187,20 @@ def generate_signal(ticker, cfg, tax_mode=None):
     """
     tax_mode: None (normal), 'sma_shift', 'rsi_sma', 'atr_scale'
     """
-    time.sleep(1)
+    time.sleep(1)  # throttle to avoid API rate limit
     end = datetime.today().strftime("%Y-%m-%d")
     start = "2023-01-01"
 
-    prices = yf.download([ticker], start=start, end=end,
-                         progress=False, auto_adjust=True)["Close"].dropna()
-    if ticker not in prices.columns:
-        return {"Symbol": ticker, "Error": "Data not available"}
+    try:
+        ohlc = yf.download(ticker, start=start, end=end,
+                           progress=False, auto_adjust=True)
+    except Exception:
+        return {"Symbol": ticker, "Error": "Download failed"}
 
-    price = prices[ticker].to_frame(name="Price")
+    if ohlc.empty:
+        return {"Symbol": ticker, "Error": "No data"}
+
+    price = ohlc["Close"].to_frame(name="Price")
 
     # === Config variables from sidebar ===
     sma_window = cfg["sma_window"]
@@ -214,13 +218,11 @@ def generate_signal(ticker, cfg, tax_mode=None):
     rsi_overbought_strongtrend = 80
     trailing_stop = None
 
-    # Calculate indicators
+    # Indicators
     price["SMA200"] = price["Price"].rolling(sma_window).mean()
     price["RSI"] = compute_rsi(price["Price"], period=rsi_period)
 
     if use_atr_stop:
-        ohlc = yf.download(ticker, start=start, end=end,
-                           progress=False, auto_adjust=True)[["High","Low","Close"]]
         hl = ohlc["High"] - ohlc["Low"]
         hp = (ohlc["High"] - ohlc["Close"].shift()).abs()
         lp = (ohlc["Low"] - ohlc["Close"].shift()).abs()
@@ -235,8 +237,7 @@ def generate_signal(ticker, cfg, tax_mode=None):
     price["IsBoom"] = [(d.year, d.quarter) in boom_quarters_set for d in price.index]
 
     latest = price.iloc[-1]
-    live_price = yf.Ticker(ticker).info.get("currentPrice")
-    p = live_price if live_price else latest["Price"]
+    p = latest["Price"]
     rsi, sma, boom = latest["RSI"], latest["SMA200"], latest["IsBoom"]
 
     signal = "HOLD"
@@ -272,7 +273,6 @@ def generate_signal(ticker, cfg, tax_mode=None):
                 overbought_level = rsi_overbought
 
             if tax_mode == "rsi_sma":
-                # Require BOTH RSI > overbought AND Price < SMA
                 if (rsi > overbought_level) and (p < sma):
                     signal = "SELL"
                     reason += f"RSI {rsi:.1f} > {overbought_level} AND Price < SMA200 ({p:.2f} < {sma:.2f})"
@@ -293,7 +293,7 @@ def generate_signal(ticker, cfg, tax_mode=None):
                     trailing_stop = max(trailing_stop, p - atr_mult * latest["ATR"])
                 stop_level = trailing_stop
                 if tax_mode == "atr_scale":
-                    stop_level = stop_level * 0.85   # tax buffer
+                    stop_level = stop_level * 0.85
                 if p < stop_level:
                     signal = "SELL"
                     reason += f" Price hit ATR trailing stop ({p:.2f} < {stop_level:.2f})"
@@ -326,29 +326,20 @@ default_cfg = {
     "atr_mult": st.sidebar.number_input("ATR Multiplier", value=2.0)
 }
 
-# === Tax Sim buttons ===
-st.sidebar.subheader("TAX Sim")
-tax_mode = "atr_scale"  # default
-if st.sidebar.button("SMA Shift (15%)"):
-    tax_mode = "sma_shift"
-if st.sidebar.button("RSI + SMA Confirmation"):
-    tax_mode = "rsi_sma"
-if st.sidebar.button("ATR Scaling (default)"):
-    tax_mode = "atr_scale"
+# Tax Sim mode selection
+st.sidebar.subheader("TAX Sim Mode")
+tax_mode = st.sidebar.radio(
+    "Choose tax simulation:",
+    options=["atr_scale", "sma_shift", "rsi_sma"],
+    format_func=lambda x: {"atr_scale":"ATR Scaling (default)",
+                           "sma_shift":"SMA Shift (15%)",
+                           "rsi_sma":"RSI + SMA Confirmation"}[x],
+    index=0
+)
 
 symbols_input = st.text_area("Enter stock symbols (comma-separated)", 
                              value="NIFTYBEES.NS")
 symbols = [s.strip() for s in symbols_input.split(",") if s.strip()]
 
 if st.button("Generate Signals"):
-    normal_results, tax_results = [], []
-    for sym in symbols:
-        normal_results.append(generate_signal(sym, default_cfg, tax_mode=None))
-        tax_results.append(generate_signal(sym, default_cfg, tax_mode=tax_mode))
-
-    df_normal = pd.DataFrame(normal_results)
-    df_tax = pd.DataFrame(tax_results)
-
-    def highlight(row):
-        color = {"BUY": "#d4f4dd", "SELL": "#f4d4d4", "HOLD": "#f4f4d4"}
-        return
+    normal
