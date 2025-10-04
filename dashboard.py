@@ -244,6 +244,8 @@ def generate_signal(ticker, cfg, tax_mode=None):
 
     # === Tax simulation adjustments ===
     if tax_mode == "sma_shift":
+        rsi_overbought += 5
+        rsi_overbought_strongtrend += 5
         sma = sma * 0.85 if pd.notna(sma) else sma
         reason += "[Tax SMA Shift] "
     elif tax_mode == "rsi_sma":
@@ -260,25 +262,21 @@ def generate_signal(ticker, cfg, tax_mode=None):
         reason += "Boom quarter"
         
     elif pd.notna(rsi) and pd.notna(sma):
-        # Entry
         if (rsi < rsi_oversold) and (p > sma):
             signal = "BUY"
             reason += f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"        
-        # Exit
         elif in_position:
             if p > sma * (1 + strongtrend_sma_gap):
                 overbought_level = rsi_overbought_strongtrend
             else:
                 overbought_level = rsi_overbought
 
-            # === Tax sim logic ===
             if tax_mode == "rsi_sma":
                 # Require BOTH RSI > overbought AND Price < SMA
                 if (rsi > overbought_level) and (p < sma):
                     signal = "SELL"
                     reason += f"RSI {rsi:.1f} > {overbought_level} AND Price < SMA200 ({p:.2f} < {sma:.2f})"
             else:
-                # Normal or SMA shift
                 if (rsi > overbought_level) or (p < sma):
                     signal = "SELL"
                     if rsi > overbought_level and p < sma:
@@ -288,7 +286,6 @@ def generate_signal(ticker, cfg, tax_mode=None):
                     elif p < sma:
                         reason += f"Price < SMA200 ({p:.2f} < {sma:.2f})"
 
-            # ATR trailing stop
             if use_atr_stop and "ATR" in latest and not pd.isna(latest["ATR"]):
                 if trailing_stop is None:
                     trailing_stop = p - atr_mult * latest["ATR"]
@@ -296,7 +293,7 @@ def generate_signal(ticker, cfg, tax_mode=None):
                     trailing_stop = max(trailing_stop, p - atr_mult * latest["ATR"])
                 stop_level = trailing_stop
                 if tax_mode == "atr_scale":
-                    stop_level = stop_level * 0.85
+                    stop_level = stop_level * 0.85   # tax buffer
                 if p < stop_level:
                     signal = "SELL"
                     reason += f" Price hit ATR trailing stop ({p:.2f} < {stop_level:.2f})"
@@ -340,11 +337,18 @@ if st.sidebar.button("ATR Scaling (default)"):
     tax_mode = "atr_scale"
 
 symbols_input = st.text_area("Enter stock symbols (comma-separated)", 
-                             value="HDFCBANK.NS,HERITGFOOD.NS,ADANIGREEN.NS,NIFTYBEES.NS,HDFCSML250.NS")
+                             value="NIFTYBEES.NS")
 symbols = [s.strip() for s in symbols_input.split(",") if s.strip()]
 
 if st.button("Generate Signals"):
     normal_results, tax_results = [], []
     for sym in symbols:
         normal_results.append(generate_signal(sym, default_cfg, tax_mode=None))
-        tax_results.append(generate_signal(sym, default_cfg, tax
+        tax_results.append(generate_signal(sym, default_cfg, tax_mode=tax_mode))
+
+    df_normal = pd.DataFrame(normal_results)
+    df_tax = pd.DataFrame(tax_results)
+
+    def highlight(row):
+        color = {"BUY": "#d4f4dd", "SELL": "#f4d4d4", "HOLD": "#f4f4d4"}
+        return
