@@ -166,6 +166,8 @@
 #         st.dataframe(df_tax.style.apply(highlight, axis=1), use_container_width=True)
 
 
+
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -183,24 +185,17 @@ def compute_rsi(series, period=14):
     return 100 - (100 / (1 + rs))
 
 # === Signal Generator ===
-def generate_signal(ticker, cfg, tax_mode=None):
-    """
-    tax_mode: None (normal), 'sma_shift', 'rsi_sma', 'atr_scale'
-    """
-    time.sleep(1)  # throttle to avoid API rate limit
+def generate_signal(ticker, cfg, sim_mode="ATR Scaling"):
+    time.sleep(1)
     end = datetime.today().strftime("%Y-%m-%d")
     start = "2023-01-01"
 
-    try:
-        ohlc = yf.download(ticker, start=start, end=end,
-                           progress=False, auto_adjust=True)
-    except Exception:
-        return {"Symbol": ticker, "Error": "Download failed"}
+    prices = yf.download([ticker], start=start, end=end,
+                         progress=False, auto_adjust=True)["Close"].dropna()
+    if ticker not in prices.columns:
+        return {"Symbol": ticker, "Error": "Data not available"}
 
-    if ohlc.empty:
-        return {"Symbol": ticker, "Error": "No data"}
-
-    price = ohlc["Close"].to_frame(name="Price")
+    price = prices[ticker].to_frame(name="Price")
 
     # === Config variables from sidebar ===
     sma_window = cfg["sma_window"]
@@ -218,11 +213,13 @@ def generate_signal(ticker, cfg, tax_mode=None):
     rsi_overbought_strongtrend = 80
     trailing_stop = None
 
-    # Indicators
+    # Calculate indicators
     price["SMA200"] = price["Price"].rolling(sma_window).mean()
     price["RSI"] = compute_rsi(price["Price"], period=rsi_period)
 
     if use_atr_stop:
+        ohlc = yf.download(ticker, start=start, end=end,
+                           progress=False, auto_adjust=True)[["High","Low","Close"]]
         hl = ohlc["High"] - ohlc["Low"]
         hp = (ohlc["High"] - ohlc["Close"].shift()).abs()
         lp = (ohlc["Low"] - ohlc["Close"].shift()).abs()
@@ -237,22 +234,23 @@ def generate_signal(ticker, cfg, tax_mode=None):
     price["IsBoom"] = [(d.year, d.quarter) in boom_quarters_set for d in price.index]
 
     latest = price.iloc[-1]
-    p = latest["Price"]
+    live_price = yf.Ticker(ticker).info.get("currentPrice")
+    p = live_price if live_price else latest["Price"]
     rsi, sma, boom = latest["RSI"], latest["SMA200"], latest["IsBoom"]
 
     signal = "HOLD"
     reason = ""
 
-    # === Tax simulation adjustments ===
-    if tax_mode == "sma_shift":
+    # === Apply TAX Simulation Mode Adjustments ===
+    if sim_mode == "SMA Shift (15%)":
         rsi_overbought += 5
         rsi_overbought_strongtrend += 5
         sma = sma * 0.85 if pd.notna(sma) else sma
-        reason += "[Tax SMA Shift] "
-    elif tax_mode == "rsi_sma":
-        reason += "[Tax RSI+SMA] "
-    elif tax_mode == "atr_scale":
-        reason += "[Tax ATR Scale] "
+        reason += "[SMA Shift Mode] "
+    elif sim_mode == "RSI + SMA Confirmation":
+        reason += "[RSI+SMA Mode] "
+    elif sim_mode == "ATR Scaling (default)":
+        reason += "[ATR Scaling Mode] "
 
     # === Signal logic ===
     if boom:
@@ -261,18 +259,19 @@ def generate_signal(ticker, cfg, tax_mode=None):
         else:
             signal = "BUY"
         reason += "Boom quarter"
-        
+
     elif pd.notna(rsi) and pd.notna(sma):
         if (rsi < rsi_oversold) and (p > sma):
             signal = "BUY"
-            reason += f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"        
+            reason += f"RSI {rsi:.1f} < {rsi_oversold} and Price > SMA200 ({p:.2f} > {sma:.2f})"
         elif in_position:
             if p > sma * (1 + strongtrend_sma_gap):
                 overbought_level = rsi_overbought_strongtrend
             else:
                 overbought_level = rsi_overbought
 
-            if tax_mode == "rsi_sma":
+            # --- SELL conditions based on sim_mode ---
+            if sim_mode == "RSI + SMA Confirmation":
                 if (rsi > overbought_level) and (p < sma):
                     signal = "SELL"
                     reason += f"RSI {rsi:.1f} > {overbought_level} AND Price < SMA200 ({p:.2f} < {sma:.2f})"
@@ -286,17 +285,18 @@ def generate_signal(ticker, cfg, tax_mode=None):
                     elif p < sma:
                         reason += f"Price < SMA200 ({p:.2f} < {sma:.2f})"
 
+            # --- ATR trailing stop logic ---
             if use_atr_stop and "ATR" in latest and not pd.isna(latest["ATR"]):
+                atr_stop_mult = atr_mult
+                if sim_mode == "ATR Scaling (default)":
+                    atr_stop_mult = atr_mult * 0.85
                 if trailing_stop is None:
-                    trailing_stop = p - atr_mult * latest["ATR"]
+                    trailing_stop = p - atr_stop_mult * latest["ATR"]
                 else:
-                    trailing_stop = max(trailing_stop, p - atr_mult * latest["ATR"])
-                stop_level = trailing_stop
-                if tax_mode == "atr_scale":
-                    stop_level = stop_level * 0.85
-                if p < stop_level:
+                    trailing_stop = max(trailing_stop, p - atr_stop_mult * latest["ATR"])
+                if p < trailing_stop:
                     signal = "SELL"
-                    reason += f" Price hit ATR trailing stop ({p:.2f} < {stop_level:.2f})"
+                    reason += f" Price hit ATR trailing stop ({p:.2f} < {trailing_stop:.2f})"
 
     return {
         "Symbol": ticker,
@@ -326,20 +326,35 @@ default_cfg = {
     "atr_mult": st.sidebar.number_input("ATR Multiplier", value=2.0)
 }
 
-# Tax Sim mode selection
-st.sidebar.subheader("TAX Sim Mode")
-tax_mode = st.sidebar.radio(
-    "Choose tax simulation:",
-    options=["atr_scale", "sma_shift", "rsi_sma"],
-    format_func=lambda x: {"atr_scale":"ATR Scaling (default)",
-                           "sma_shift":"SMA Shift (15%)",
-                           "rsi_sma":"RSI + SMA Confirmation"}[x],
-    index=0
+# === Tax Simulation Mode ===
+sim_mode = st.sidebar.radio(
+    "TAX Sim Mode",
+    ["SMA Shift (15%)", "RSI + SMA Confirmation", "ATR Scaling (default)"],
+    index=2
 )
 
-symbols_input = st.text_area("Enter stock symbols (comma-separated)", 
+symbols_input = st.text_area("Enter stock symbols (comma-separated)",
                              value="NIFTYBEES.NS")
 symbols = [s.strip() for s in symbols_input.split(",") if s.strip()]
 
 if st.button("Generate Signals"):
-    normal
+    normal_results, sim_results = [], []
+    for sym in symbols:
+        normal_results.append(generate_signal(sym, default_cfg, sim_mode="Normal"))
+        sim_results.append(generate_signal(sym, default_cfg, sim_mode=sim_mode))
+
+    df_normal = pd.DataFrame(normal_results)
+    df_sim = pd.DataFrame(sim_results)
+
+    def highlight(row):
+        color = {"BUY": "#d4f4dd", "SELL": "#f4d4d4", "HOLD": "#f4f4d4"}
+        return [f"background-color: {color.get(row['Signal'], '')}" for _ in row]
+
+    if not df_normal.empty and not df_sim.empty:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Normal Signals")
+            st.dataframe(df_normal.style.apply(highlight, axis=1), use_container_width=True)
+        with col2:
+            st.subheader(f"Signals — {sim_mode}")
+            st.dataframe(df_sim.style.apply(highlight, axis=1), use_container_width=True)
