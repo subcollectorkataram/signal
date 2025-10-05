@@ -186,7 +186,7 @@ def compute_rsi(series, period=14):
 
 # === Signal Generator ===
 def generate_signal(ticker, cfg, sim_mode="Normal"):
-    time.sleep(1)
+    time.sleep(0.5)
     end = datetime.today().strftime("%Y-%m-%d")
     start = "2023-01-01"
 
@@ -358,3 +358,4 @@ if st.button("Generate Signals"):
     if not df_sim.empty:
         st.subheader(f"Signals — {sim_mode}")
         st.dataframe(df_sim.style.apply(highlight, axis=1), use_container_width=True)
+
