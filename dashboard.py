@@ -173,6 +173,7 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import time
+import numpy as np
 
 # === Helper: RSI ===
 def compute_rsi(series, period=14):
@@ -714,6 +715,7 @@ if st.button("Generate Signals"):
     if not df_sim.empty:
         st.subheader(f"Signals — {sim_mode}")
         st.dataframe(df_sim.style.apply(highlight, axis=1), use_container_width=True)
+
 
 
 
