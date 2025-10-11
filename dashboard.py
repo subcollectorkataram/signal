@@ -709,12 +709,13 @@ if st.button("Generate Signals"):
         st.dataframe(df_layer.style.apply(highlight, axis=1), use_container_width=True)
 
     if not df_filter.empty:
-        st.subheader(f"Signals — {sim_mode}")
+        st.subheader(f"Filter Signals")
         st.dataframe(df_filter.style.apply(highlight, axis=1), use_container_width=True)
 
     if not df_sim.empty:
         st.subheader(f"Signals — {sim_mode}")
         st.dataframe(df_sim.style.apply(highlight, axis=1), use_container_width=True)
+
 
 
 
